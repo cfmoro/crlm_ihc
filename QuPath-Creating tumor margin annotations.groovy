@@ -6,9 +6,8 @@
  * NOTE: This version has been updated for v0.2.0-m6 and to use Java Topology Suite.
  *
  * @author Pete Bankhead
+ * @author Modified by Carlos F Moro and Sara Harrizi
  */
-
-
 import org.locationtech.jts.geom.Geometry
 import qupath.lib.common.GeneralTools
 import qupath.lib.objects.PathObject
@@ -21,16 +20,22 @@ import static qupath.lib.gui.scripting.QPEx.*
 //-----
 // Some things you might want to change
 
-// How much to expand each region
-double expandMarginMicrons = 500.0
-
 // Define the colors
-def coloInnerMargin = getColorRGB(0, 0, 200)
+def colorInnerMargin = getColorRGB(0, 0, 200)
 def colorOuterMargin = getColorRGB(0, 200, 0)
 def colorCentral = getColorRGB(0, 0, 0)
 
 // Choose whether to lock the annotations or not (it's generally a good idea to avoid accidentally moving them)
 def lockAnnotations = true
+
+// CRLM enhancements
+// How much to expand each region
+def widthsOuter = [800] //
+println('widthsOuter: ' + widthsOuter)
+def widthsInner = [] //
+println('widthsInner: ' + widthsInner)
+
+def removeOrigTumorAnnot = false
 
 //-----
 
@@ -51,21 +56,19 @@ if (!GeneralTools.almostTheSame(cal.getPixelWidthMicrons(), cal.getPixelHeightMi
 
 // Get annotation & detections
 def annotations = getAnnotationObjects()
-def selected = getSelectedObject()
-if (selected == null || !selected.isAnnotation()) {
-  print 'Please select an annotation object!'
-  return
+def invFrontAnnotations = annotations.findAll{ it.getPathClass() == getPathClass('Invasion front') }
+if (invFrontAnnotations.size() != 1) {
+	println 'Ups, one and only one invasion front annnotatio required and supported for the moment'
+	return
 }
-
-// We need one selected annotation as a starting point; if we have other annotations, they will constrain the output
-annotations.remove(selected)
+def selected = invFrontAnnotations[0]
 
 // Extract the ROI & plane
 def roiOriginal = selected.getROI()
 def plane = roiOriginal.getImagePlane()
 
 // If we have at most one other annotation, it represents the tissue
-Geometry areaTissue
+def Geometry areaTissue
 PathObject tissueAnnotation
 if (annotations.isEmpty()) {
   areaTissue = ROIs.createRectangleROI(0, 0, server.getWidth(), server.getHeight(), plane).getGeometry()
@@ -73,44 +76,80 @@ if (annotations.isEmpty()) {
   tissueAnnotation = annotations.get(0)
   areaTissue = tissueAnnotation.getROI().getGeometry()
 } else {
-  print 'Sorry, this script only support one selected annotation for the tumor region, and at most one other annotation to constrain the expansion'
-  return
+   // Obtain the tissue annotation, must be of class Region*
+   areaTissue = annotations.findAll{ it.getPathClass() == getPathClass("Region*")}.get(0).getROI().getGeometry()
+   print(areaTissue)
+   
 }
 
 // Calculate how much to expand
-double expandPixels = expandMarginMicrons / cal.getAveragedPixelSizeMicrons()
+def expandPixelsOuter = widthsOuter*.div(cal.getAveragedPixelSizeMicrons()) // same as collect
+println('expandPixelsOuter: ' + expandPixelsOuter)
+def expandPixelsInner = widthsInner*.div(cal.getAveragedPixelSizeMicrons()) // same as collect
+println('expandPixelsInner: ' + expandPixelsInner)
+
+// Get the tumor area
 def areaTumor = roiOriginal.getGeometry()
 
-// Get the outer margin area
-def geomOuter = areaTumor.buffer(expandPixels)
-geomOuter = geomOuter.difference(areaTumor)
-geomOuter = geomOuter.intersection(areaTissue)
-def roiOuter = GeometryTools.geometryToROI(geomOuter, plane)
-def annotationOuter = PathObjects.createAnnotationObject(roiOuter)
-annotationOuter.setName("Outer margin")
-annotationOuter.setColorRGB(colorOuterMargin)
+// Initialize arrays of border margins
+def annotOuters = []
+def annotInners = []
 
-// Get the central area
-def geomCentral = areaTumor.buffer(-expandPixels)
-geomCentral = geomCentral.intersection(areaTissue)
-def roiCentral = GeometryTools.geometryToROI(geomCentral, plane)
-def annotationCentral = PathObjects.createAnnotationObject(roiCentral)
-annotationCentral.setName("Center")
-annotationCentral.setColorRGB(colorCentral)
-
-// Get the inner margin area
-def geomInner = areaTumor
-geomInner = geomInner.difference(geomCentral)
-geomInner = geomInner.intersection(areaTissue)
-def roiInner = GeometryTools.geometryToROI(geomInner, plane)
-def annotationInner = PathObjects.createAnnotationObject(roiInner)
-annotationInner.setName("Inner margin")
-annotationInner.setColorRGB(coloInnerMargin)
-
-// Add the annotations
-hierarchy.getSelectionModel().clearSelection()
-hierarchy.removeObject(selected, true)
-def annotationsToAdd = [annotationOuter, annotationInner, annotationCentral];
+// Create outer margins/bands
+def sumPrevOuters = 0
+expandPixelsOuter.eachWithIndex { width, index ->
+ 
+   def widthOut = sumPrevOuters + expandPixelsOuter[index]
+   
+   println "Create outer ${index+1} of width ${widthsOuter[index]} with widthOut ${widthOut} and sumPrevOuters ${sumPrevOuters}"
+   
+   def geomOuter = areaTumor.buffer(widthOut)
+   geomOuter = geomOuter.difference(areaTumor.buffer(sumPrevOuters))
+   geomOuter = geomOuter.intersection(areaTissue)
+   
+   def roiOuter = GeometryTools.geometryToROI(geomOuter, plane)
+   
+   def annotationOuter = PathObjects.createAnnotationObject(roiOuter)
+	   annotationOuter.setPathClass(getPathClass('Band*'))
+	   annotationOuter.setName("Outer margin " + (index+1))
+	   annotationOuter.setColorRGB(colorOuterMargin)
+	   annotationOuter.getMeasurementList().putMeasurement("band index", index+1)
+	   annotationOuter.getMeasurementList().putMeasurement("band width um", widthsOuter[index])
+	   annotationOuter.getMeasurementList().putMeasurement("band width px", width)
+	   annotOuters.add(annotationOuter)
+			 
+	sumPrevOuters += widthOut
+ }
+ 
+ println()
+ 
+ // Create inner margins/bands
+def sumPrevInners = 0
+expandPixelsInner.eachWithIndex { width, index ->
+   
+   def widthIn = sumPrevInners + expandPixelsInner[index]
+   println "Create inner -${index+1} of width ${widthsInner[index]} with sumPrevInners ${sumPrevInners} and widthIn ${widthIn}"
+   
+   def geomInner = areaTumor.buffer(-sumPrevInners)
+   geomInner = geomInner.difference(areaTumor.buffer(-widthIn))
+   geomInner = geomInner.intersection(areaTissue)
+   
+   def roiInner = GeometryTools.geometryToROI(geomInner, plane)
+   
+   def annotationInner = PathObjects.createAnnotationObject(roiInner)
+	   annotationInner.setPathClass(getPathClass('Band*'))
+	   annotationInner.setName("Inner margin " + (index+1))
+	   annotationInner.setColorRGB(colorInnerMargin)
+	   annotationInner.getMeasurementList().putMeasurement("band index", -(index+1))
+	   annotationInner.getMeasurementList().putMeasurement("band width um", widthsInner[index])
+	   annotationInner.getMeasurementList().putMeasurement("band width px", width)
+	   annotInners.add(annotationInner)
+   
+   sumPrevInners += expandPixelsInner[index]
+ }
+	 
+def annotationsToAdd =  annotOuters //
+annotationsToAdd.addAll(annotInners)
 annotationsToAdd.each {it.setLocked(lockAnnotations)}
 if (tissueAnnotation == null) {
   hierarchy.addPathObjects(annotationsToAdd)
@@ -118,5 +157,7 @@ if (tissueAnnotation == null) {
   tissueAnnotation.addPathObjects(annotationsToAdd)
   hierarchy.fireHierarchyChangedEvent(this, tissueAnnotation)
   if (lockAnnotations)
-    tissueAnnotation.setLocked(true)
+	tissueAnnotation.setLocked(true)
 }
+
+println 'Done!'
