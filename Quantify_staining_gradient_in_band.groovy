@@ -181,14 +181,15 @@ for (annotation in getAnnotationObjects().findAll{ it.getPathClass() == getPathC
     //Reference sample for writing out some array as a CSV file with a header line and row headers (classes)
     //Based off of https://forum.image.sc/t/write-polygon-coordinates-to-text-or-csv-file/44811/2
     def header = "Image name, Annotation name, Distance um, Stain value" 
-       
-    output = "/home/bibu/Workspace/crlm ihc/test.csv"
-    File csvFile = new File(output)
-    csvFile.createNewFile()
 
     def path =imageData.getServer().getPath()
     def imageName = path[path.lastIndexOf(':')+1..-1]
     imageName = imageName[imageName.lastIndexOf('/')+1..-1]
+           
+    output = "/home/bibu/Workspace/crlm ihc/output/${imageName}.csv"
+    File csvFile = new File(output)
+    csvFile.createNewFile()
+
     def annotationName = annotation.getName()
     def outData = []
     for (int x = 0; x < xPlot.size(); x++) {
