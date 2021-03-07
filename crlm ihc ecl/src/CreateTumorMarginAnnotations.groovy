@@ -1,11 +1,14 @@
 /**
  * Script to help with annotating tumor regions, separating the tumor margin from the center.
  *
- * Here, each of the margin regions is approximately 500 microns in width.
+ * In this version, any number and thickness of inner and outer annotations with respect to the
+ * tumor border can be configured (in widthsOuter and widthInner). 
  *
  * NOTE: This version has been updated for v0.2.0-m6 and to use Java Topology Suite.
  *
  * @author Pete Bankhead
+ * https://petebankhead.github.io/qupath/scripts/2018/08/08/three-regions.html
+ * https://gist.github.com/petebankhead/7e69e9252416da0a677eb4d3a999e442#file-qupath-creating-tumor-margin-annotations-groovy
  * @author Modified by Carlos F Moro and Sara Harrizi
  */
 import org.locationtech.jts.geom.Geometry

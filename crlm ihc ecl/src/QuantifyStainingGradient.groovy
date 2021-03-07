@@ -1,3 +1,10 @@
+/**
+ * Script to quantify gradient of a given staining, in principle in a tumor margin annotation, 
+ * with the intensity profile averaged horizontally as output in cvs format.
+ * @author Pete Bankhead
+ * @author Modified by Carlos F Moro and Sara Harrizi
+ */
+
 import ij.IJ
 import ij.ImagePlus
 import ij.gui.Plot
