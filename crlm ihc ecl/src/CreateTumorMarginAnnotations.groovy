@@ -10,6 +10,7 @@
  */
 import org.locationtech.jts.geom.Geometry
 import qupath.lib.common.GeneralTools
+import qupath.lib.gui.scripting.QPEx
 import qupath.lib.objects.PathObject
 import qupath.lib.objects.PathObjects
 import qupath.lib.roi.GeometryTools
