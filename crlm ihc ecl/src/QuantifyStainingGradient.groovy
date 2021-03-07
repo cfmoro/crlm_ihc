@@ -4,7 +4,6 @@
  * @author Pete Bankhead
  * @author Modified by Carlos F Moro and Sara Harrizi
  */
-
 import ij.IJ
 import ij.ImagePlus
 import ij.gui.Plot
