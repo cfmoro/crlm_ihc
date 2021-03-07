@@ -34,9 +34,9 @@ def lockAnnotations = true
 
 // CRLM enhancements
 // How much to expand each region
-def widthsOuter = [800] //
+def widthsOuter = [125, 250, 500] //
 println('widthsOuter: ' + widthsOuter)
-def widthsInner = [] //
+def widthsInner = [100, 200, 300] //
 println('widthsInner: ' + widthsInner)
 
 def removeOrigTumorAnnot = false
@@ -122,7 +122,7 @@ expandPixelsOuter.eachWithIndex { width, index ->
 	   annotationOuter.getMeasurementList().putMeasurement("band width px", width)
 	   annotOuters.add(annotationOuter)
 			 
-	sumPrevOuters += widthOut
+   sumPrevOuters = widthOut
  }
  
  println()
@@ -149,7 +149,7 @@ expandPixelsInner.eachWithIndex { width, index ->
 	   annotationInner.getMeasurementList().putMeasurement("band width px", width)
 	   annotInners.add(annotationInner)
    
-   sumPrevInners += expandPixelsInner[index]
+   sumPrevInners = widthIn
  }
 	 
 def annotationsToAdd =  annotOuters //
