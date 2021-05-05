@@ -1,0 +1,88 @@
+---
+title: "1_CRLM_IHC_data_wrangling_step1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Generated on: `r Sys.time()`
+
+```{r }
+library(tidyverse)
+library(ggplot2)
+``` 
+
+```{r }
+baseDir <-"/home/bibu/Workspace/crlm ihc/"
+ihcDataOrigFn <- paste(baseDir, "data/Detec2measurements_210420.csv", sep="")
+ihcDataParsedFn <- paste(baseDir, "out/CRLM_IHC_data_parsed.csv", sep="")
+```
+
+```{r }
+# Read ihc data
+ihcDataOrig <- read.csv2(ihcDataOrigFn, na.strings = "")
+#ihcDataOrig <- ihcDataOrig[ 1:300, ] # temporarily limit dataset size
+
+# Rename columns
+ihcData <- ihcDataOrig %>% rename(file_name = Image, tiles_annotation = Parent, dist2inv_front = Distance.to.annotation.with.Invasion.Front.µm, dist2outer_band = Distance.to.annotation.with.OuterMargiN.µm, dab_mean = ROI..2.00.µm.per.pixel..DAB..Mean, ap_mean = ROI..2.00.µm.per.pixel..AP..Mean)
+
+# Remove image file name extension
+ihcData <- ihcData %>% mutate(file_name = str_replace(file_name, "(.ndpi)", ""))
+# Fix marker names as in other images
+ihcData <- ihcData %>% mutate(file_name = str_replace(file_name, "(maspin)", "masp"))
+ihcData <- ihcData %>% mutate(file_name = str_replace(file_name, "(actsmo)", "actinsm"))
+
+# Substitute in file name last occurrence of '-' by ':' to separate image name from markers
+# Negative lookahead is used when you want to match something (Word1) not followed by something else (Word2):  Word1(?!.*Word2)
+# We use this to find the last occurrence of a word in a string.
+# https://www.xlayer.co.za/forum/viewtopic.php?id=105 , text in https://regex101.com/
+ihcData <- ihcData %>% mutate(file_name = str_replace(file_name, "-(?!.*-)", ":")) 
+
+# Separate file name into image name and markers
+ihcData <- ihcData %>% separate(file_name, into =  c("image", "markers"), sep = ":")
+
+# Convert image and markers to factors
+ihcData$image <- as.factor(ihcData$image)
+ihcData$markers <- as.factor(ihcData$markers)
+
+levels(ihcData$image)
+levels(ihcData$markers)
+
+# Add empty column for dab_markers and ap_markers
+ihcData <- ihcData %>% add_column(dab_markers = NA, ap_markers = NA, .after = "markers")
+ 
+# Group marker names acoordin to staings
+for(marker_combination in levels(ihcData$markers)) {
+  # First split them all by _ separator
+  indiv_markers <- unlist(str_split(marker_combination, "_"))
+  num_markers <- length(indiv_markers)  
+  
+  dabs <- NA
+  aps <- NA
+  # Group with stainings according to the number of markers
+  if(num_markers == 1) { # Only one marker, should be DAB, otherwise create a named list and associate marker name with DAB or AP 
+    dabs <- c(indiv_markers[1])
+  } else if(num_markers == 2) {
+    dabs <- c(indiv_markers[1])
+    aps <- c(indiv_markers[2])
+  } else if(num_markers == 3) {
+    dabs <- c(indiv_markers[1], indiv_markers[2])
+    aps <- c(indiv_markers[3])
+  } else if(num_markers == 4) {
+    dabs <- c(indiv_markers[1], indiv_markers[2])
+    aps <- c(indiv_markers[3], indiv_markers[4])
+  }
+  
+  dabs <- c(dabs, "dab")
+  aps <- c(aps, "ap")
+  # Update dataset by filling columns dab_markers and ap_markers for the current staining combination
+  # Alternative implementation, mutate_cond: https://stackoverflow.com/questions/34096162/dplyr-mutate-replace-several-columns-on-a-subset-of-rows
+  ihcData <- ihcData %>% mutate(dab_markers = ifelse(markers == marker_combination, paste(dabs, collapse = "_"), dab_markers),
+                                ap_markers = ifelse(markers == marker_combination, paste(aps, collapse = "_"), ap_markers))
+
+}
+
+write.csv(ihcData, ihcDataParsedFn, row.names = F)
+```

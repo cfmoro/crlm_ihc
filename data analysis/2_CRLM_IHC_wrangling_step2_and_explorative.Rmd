@@ -1,0 +1,185 @@
+---
+title: "2_CRLM_IHC_wrangling_step2_and_explorative"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Generated on: `r Sys.time()`
+
+```{r }
+library(tidyverse)
+library(ggplot2)
+library(hexbin)
+``` 
+
+```{r }
+baseDir <-"/home/bibu/Workspace/crlm ihc/"
+ihcData <- paste(baseDir, "out/CRLM_IHC_data_parsed.csv", sep="")
+ihcDataDistLongFn <- paste(baseDir, "out/CRLM_IHC_data_long.csv", sep="")
+ihcDataDistAvgFn <- paste(baseDir, "out/CRLM_IHC_data_avg.csv", sep="")
+```
+
+```{r }
+# Read ihc data
+ihcData <- read.csv(ihcData)
+#ihcDataOrig <- ihcDataOrig[ 1:300, ] # temporarily limit dataset size
+
+# Dimensions of dataset
+dim(ihcData)
+
+# Column types
+ihcData %>%  summarise(across(everything(), class)) %>% unlist
+
+# Summary of missing data
+ihcData %>%  summarise(across(everything(), ~sum(is.na(.x)))) %>% unlist %>% sort(decreasing = T)
+
+# Images
+length(levels(ihcData$image))
+levels(ihcData$image)
+
+# Markers, obs crp and saa missing
+levels(ihcData$markers)
+
+# Marker combinations per image
+ihcData %>% group_by(image) %>% summarise(marker = unique(markers))
+
+# Number of images per marker combination
+ihcData %>% group_by(markers) %>% summarise(count = length(unique(image))) %>% arrange(desc(count))
+
+# List of images per combination
+ihcData %>% group_by(markers) %>% summarise(image = unique(image))
+
+# Number of images per dab markers
+ihcData %>% group_by(dab_markers) %>% summarise(count = length(unique(image))) %>% arrange(desc(count))
+
+# Number of images per ap markers
+ihcData %>% group_by(ap_markers) %>% summarise(count = length(unique(image))) %>% arrange(desc(count))
+```
+
+```{r }
+# Convert dataset from wide to long by unifying ap and dab markers into markers and ap and dab means into intensity mean
+apData <- ihcData %>% select(image, ap_markers, tiles_annotation, dist2inv_front, dist2outer_band, ap_mean)
+apData <- apData %>% rename(markers = ap_markers, intensity_mean = ap_mean)
+
+dabData <- ihcData %>% select(image, dab_markers, tiles_annotation, dist2inv_front, dist2outer_band, dab_mean)
+dabData <- dabData %>% rename(markers = dab_markers, intensity_mean = dab_mean)
+
+ihcDataLong <- rbind(apData, dabData)
+
+```
+
+```{r }
+# Combinations of markers and tiles' annotations
+ihcDataLong %>% group_by(markers) %>% summarise(tiles_annotation = unique(tiles_annotation))
+
+# Every marker has been quantified for invasion front (desmoplastic rim) and OuterMargiN (peritumoral liver) annotations
+# We can then combine dist2outerband (positive for tiles in invasion front) and dist2inv_front (positive for tiles in outer margin)
+# into a 'distance' column where the former are - , 0 is the proper invasion front (interface between annotations)  and + the latter are +
+ihcDataInvFront <- ihcDataLong %>% filter(tiles_annotation == "Invasion Front") %>% select(image, markers, dist2outer_band, intensity_mean) %>%                                              rename(distance = dist2outer_band) %>% mutate(distance = distance * (-1))
+
+ihcDataOuterMargin <- ihcDataLong %>% filter(tiles_annotation == "OuterMargiN") %>% select(image, markers, dist2inv_front, intensity_mean) %>%                                              rename(distance = dist2inv_front)
+
+ihcDataDistLong <- rbind(ihcDataInvFront, ihcDataOuterMargin)
+```
+Univariate, overall plots
+```{r }
+ggplot(data = ihcDataDistLong) + geom_histogram(mapping = aes(x = distance), binwidth = 25) + ggtitle("Distribution of tile distances")
+
+ggplot(data = ihcDataDistLong) + geom_histogram(mapping = aes(x = intensity_mean), binwidth = 0.01) + xlim(-0.3, 1.2) +
+  ggtitle("Distribution of tile stain intensites")
+
+ggplot(data = ihcDataDistLong) + geom_freqpoly(mapping = aes(x = intensity_mean, colour = markers), binwidth = 0.01) + xlim(-0.3, 1.2) +
+  ggtitle("Distribution of tile stain intensites colored by markers")
+
+ggplot(data = ihcDataDistLong) + geom_freqpoly(mapping = aes(x = intensity_mean, y = ..density.., colour = markers), binwidth = 0.01) + xlim(-0.3, 1.2) +
+  ggtitle("Density distribution of tile stain intensites colored by markers")
+
+ggplot(data = ihcDataDistLong) + geom_freqpoly(mapping = aes(x = intensity_mean, y = ..density..), binwidth = 0.01) + xlim(-0.3, 1.2) +
+  ggtitle("Density distribution of tile stain intensites faceted by markers") + facet_wrap(~ markers, ncol = 4)
+
+```
+Bivariate, intensity x distance
+```{r }
+ggplot(data = ihcDataDistLong) + geom_hex(mapping = aes(x = distance, y = intensity_mean)) +
+  ggtitle("Scatterplot (hexbin) all intensitites all markers together")
+
+ggplot(data = ihcDataDistLong, mapping = aes(x = distance, y = intensity_mean)) + geom_boxplot(mapping = aes(group = cut_width(distance, 100)), varwidth = TRUE) + ggtitle("Distance bins and boxplots forintensities all markers together")
+
+ggplot(data = ihcDataDistLong) + geom_hex(mapping = aes(x = distance, y = intensity_mean)) + facet_wrap(~ markers, ncol = 4) +
+  ggtitle("Scatterplot (hexbin) all intensitites facet by markers")
+```
+
+```{r }
+# Remove (make 0) negative intensity outliers
+ihcDataDistLong <- ihcDataDistLong %>% mutate(intensity_mean = ifelse(intensity_mean < 0, 0, intensity_mean))
+
+# Print range of distances in 100 intervals
+seq(min(ihcDataDistLong$distance, na.rm = TRUE), max(ihcDataDistLong$distance, na.rm = TRUE), by = 100)
+
+# Bin distances (by creating a categorical variable)
+# Number of bins is 1 less than labels by seq, exclude label 0
+x_bins <- seq(-1100, 5900, by = 100)
+x_labels <- c()
+for(cont in seq(1, 70, by = 1)) {
+  if(x_bins[cont] < 0 & x_bins[cont+1] < 0) {
+    x_labels <- c(x_labels, paste0(x_bins[cont],x_bins[cont+1]))
+  } else {
+    x_labels <- c(x_labels, paste0(x_bins[cont], "-",x_bins[cont+1]))
+  }
+}
+print(x_labels)
+x_labels_invf <- x_labels[1:27]
+
+ihcDataDistLong$dist_cat <- cut(ihcDataDistLong$distance, seq(-1100, 5900, by = 100), labels = x_labels)
+ihcDataDistLong <- ihcDataDistLong %>% relocate(dist_cat, .after = distance)
+
+# Reorder levels of markers as we want them to be ploted
+ihcDataDistLong$markers <- factor(ihcDataDistLong$markers, levels = c("ngfr_ap", "actinsm_ap", "cd34_ap", "p53_cd34_dab", "cd146_dab", "cd68_dab",
+                "p53_d240_dab", "cald_masp_ap", "cald_ck19_ap", "cald_ck7_ap", "cald_ck7_dab", "ck18_ap",  "ck18_dab"))
+
+# Average intensities over bins
+ihcDataDistAvg <- ihcDataDistLong %>% group_by(markers, dist_cat) %>% summarise(intensity_avg = mean(intensity_mean, na.rm = TRUE))
+
+# Write datasets
+write.csv(ihcDataDistLong, ihcDataDistLongFn, row.names = F)
+write.csv(ihcDataDistAvg, ihcDataDistAvgFn, row.names = F)
+```
+
+Detailed plots by markers
+```{r }
+for(a_marker in levels(ihcDataDistLong$markers)) {
+  marker_data_raw <- filter(ihcDataDistLong, markers == a_marker) %>% arrange(dist_cat)
+  marker_data_avg <- filter(ihcDataDistAvg, markers == a_marker) %>% arrange(dist_cat)
+  
+  p <- ggplot(data = marker_data_raw) + geom_freqpoly(mapping = aes(x = intensity_mean, y = ..density..), binwidth = 0.01) + ggtitle(paste("raw",a_marker))
+  print(p)
+  
+  p <- ggplot(data = marker_data_raw) + geom_hex(mapping = aes(x = distance, y = intensity_mean)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle(paste("raw",a_marker))
+  print(p)
+  
+  p <- ggplot(data = marker_data_raw, mapping = aes(x = distance, y = intensity_mean)) + geom_boxplot(mapping = aes(group = dist_cat), varwidth = TRUE) + ggtitle(paste("raw",a_marker))
+    print(p)
+  
+  p <- ggplot(data = marker_data_avg, aes(x = dist_cat, y = intensity_avg, group = markers)) + geom_line() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle(paste("mean",a_marker))
+  print(p)
+}
+```
+
+Combined plots
+```{r}
+ggplot(data = filter(ihcDataDistAvg, markers %in% c("ngfr_ap", "actinsm_ap", "p53_d240_dab", "cald_masp_ap"), dist_cat %in% x_labels_invf  ), aes(x = dist_cat, y = intensity_avg, group = markers, colour = markers)) + geom_line() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle(paste("means"))
+
+# cd34_ap too faint. Regarding CD34, why increases after -500?
+ggplot(data = filter(ihcDataDistAvg, markers %in% c("ngfr_ap", "p53_cd34_dab", "cd34_ap", "cd146_dab"), dist_cat %in% x_labels_invf  ), aes(x = dist_cat, y = intensity_avg, group = markers, colour = markers)) + geom_line() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle(paste("means"))
+
+ggplot(data = filter(ihcDataDistAvg, markers %in% c("ngfr_ap", "cd68_dab", "ck18_ap"), dist_cat %in% x_labels_invf  ), aes(x = dist_cat, y = intensity_avg, group = markers, colour = markers)) + geom_line() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle(paste("means"))
+
+# cad_ck7_ap too faint. Interesting that ck7 comes before than ck19 (but then goes down), was it in some hepatocyte 
+# or are just mesurements in different cases
+ggplot(data = filter(ihcDataDistAvg, markers %in% c("ngfr_ap", "cald_ck19_ap", "cald_ck7_ap", "cald_ck7_dab"), dist_cat %in% x_labels_invf  ), aes(x = dist_cat, y = intensity_avg, group = markers, colour = markers)) + geom_line() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle(paste("means"))
+```
